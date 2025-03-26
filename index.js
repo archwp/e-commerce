@@ -221,9 +221,9 @@ app.get("/products", async (req, res) => {
 
 
 // ✅ تشغيل السيرفر
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+// app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
-
+module.exports = app;
 
 //npx prisma studio
 //npx prisma migrate deploy 
