@@ -14,7 +14,7 @@ const SECRET_KEY = "your_secret_key";
 
 paypal.configure({
   mode: "live",
-  client_id: "Aa9r6iNw3iYkxT4_kcc8Uxpw1JT97LMQicPm-93D3ycRB7vJVn1h2IVaPbTdQcrOEnyx_OCgfR9uSzZc" 
+  client_id: "Aa9r6iNw3iYkxT4_kcc8Uxpw1JT97LMQicPm-93D3ycRB7vJVn1h2IVaPbTdQcrOEnyx_OCgfR9uSzZc", 
   client_secret: "EHAgWHHsYqB6dsJwV8bldYaAyDWG5EbCB4-18b_Y2usv3NP_-aFLXe_hsN59TAwAeawY6ceXVbS2PucS"
 });
 
