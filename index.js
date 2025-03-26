@@ -14,8 +14,8 @@ const SECRET_KEY = "your_secret_key";
 
 paypal.configure({
   mode: "live",
-  client_id: process.env.PAYPAL_LIVE_CLIENT_ID, 
-  client_secret: process.env.PAYPAL_LIVE_CLIENT_SECRET
+  client_id: "Aa9r6iNw3iYkxT4_kcc8Uxpw1JT97LMQicPm-93D3ycRB7vJVn1h2IVaPbTdQcrOEnyx_OCgfR9uSzZc" 
+  client_secret: "EHAgWHHsYqB6dsJwV8bldYaAyDWG5EbCB4-18b_Y2usv3NP_-aFLXe_hsN59TAwAeawY6ceXVbS2PucS"
 });
 
 app.use(express.json());
@@ -239,3 +239,40 @@ app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 //npm cache clean --force
 // npx prisma format
 // npx prisma migrate dev --name fix-relations
+// git init
+// git add .
+// git commit -m "Initial commit"
+// git remote add origin https://github.com/your-username/your-repo.git
+// git push -u origin main
+//git branch -M main
+// نعم، يمكنك رفع التعديلات بعد تحديث الملفات في مشروعك باتباع هذه الخطوات:  
+
+// ### **1. التحقق من التعديلات**  
+// لمعرفة الملفات التي تم تعديلها، استخدم:  
+// ```sh
+// git status
+// ```
+
+// ### **2. إضافة التعديلات إلى Git**  
+// لإضافة جميع التعديلات إلى Git:  
+// ```sh
+// git add .
+// ```
+// أو لإضافة ملف معين فقط:  
+// ```sh
+// git add اسم_الملف
+// ```
+
+// ### **3. عمل Commit للتعديلات**  
+// يجب توثيق التعديلات برسالة توضيحية:  
+// ```sh
+// git commit -m "توضيح للتعديلات التي تمت"
+// ```
+
+// ### **4. رفع التعديلات إلى GitHub**  
+// ادفع التعديلات إلى الريبو على GitHub:  
+// ```sh
+// git push origin main
+// ```
+
+// 🚀 الآن تم تحديث المشروع بنجاح على GitHub!
