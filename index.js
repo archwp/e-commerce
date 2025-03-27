@@ -4,24 +4,28 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
-const paypal = require("paypal-rest-sdk");
+const paypal = require("@paypal/checkout-server-sdk");
+
 require("dotenv").config();
 
 const app = express();
 const prisma = new PrismaClient();
 const PORT = 4000;
 const SECRET_KEY = "your_secret_key";
+const environment = new paypal.core.SandboxEnvironment(
+  "Aeo9ls2rpp4WA0FSigq0FRaTh9CAzXmhe0nB16JJ-f26j76dAHbhC2TtaYaovFCdcASbDt2R1c1DRunS",
+ "EMfrz11U39HwLG4CYlfEV8NwxkV4GntjXrctnDbSYSGddfIXQrqZhYyBTK45wckHX0na1AHQ6hsu_qB1"
 
-paypal.configure({
-  mode: "live",
-  client_id: "Aa9r6iNw3iYkxT4_kcc8Uxpw1JT97LMQicPm-93D3ycRB7vJVn1h2IVaPbTdQcrOEnyx_OCgfR9uSzZc", 
-  client_secret: "EHAgWHHsYqB6dsJwV8bldYaAyDWG5EbCB4-18b_Y2usv3NP_-aFLXe_hsN59TAwAeawY6ceXVbS2PucS"
-});
+);
+const client = new paypal.core.PayPalHttpClient(environment);
+
 
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({ origin: "http://localhost:3000", credentials: true }));
-
+app.get("/test", (req, res) => {
+  res.status(200).send({ id: "4" });
+});
 // ✅ Middleware للتحقق من التوكن
 const authenticate = async (req, res, next) => {
   const token = req.cookies.token;
@@ -64,94 +68,129 @@ app.get("/user", authenticate, async (req, res) => {
   res.json(user);
 });
 app.post("/logout", (req, res) => {
-  res.clearCookie("token", { httpOnly: true, secure: false });
+  res.clearCookie("token", { httpOnly: true, secure: false ,path:"/"});
   res.json({ message: "تم تسجيل الخروج بنجاح" });
 });
-// ✅ جلب جميع المنتجات مع البحث
-// app.get("/products", async (req, res) => {
-//   const { search } = req.query;
-//   const products = await prisma.products.findMany({
-//     where: search ? { name: { contains: search, mode: "insensitive" } } : {},
-//   });
-//   res.json(products);
-// });
 
 // ✅ طلب منتج وإنشاء طلب جديد
+app.post("/pay", authenticate, async (req, res) => {
+  const { orderId } = req.body;
+
+  const order = await prisma.orders.findUnique({
+    where: { id: orderId },
+    include: { items: true },
+  });
+
+  if (!order) return res.status(404).json({ error: "الطلب غير موجود" });
+
+  const request = new paypal.orders.OrdersCreateRequest();
+  request.requestBody({
+    intent: "CAPTURE",
+    purchase_units: [
+      {
+        amount: {
+          currency_code: "EUR",
+          value: order.totalPrice.toFixed(2),
+        },
+        invoice_id: orderId.toString(),
+      },
+    ],
+  });
+
+  try {
+    const response = await client.execute(request);
+    res.json({ approvalUrl: response.result.links.find(link => link.rel === "approve").href });
+  } catch (error) {
+    console.error("PayPal Error:", error);
+    res.status(500).json({ error: "فشل إنشاء الدفع عبر PayPal" });
+  }
+});
+
+const verifyWebhookSignature = async (req) => {
+  const webhookId = "YOUR_WEBHOOK_ID"; // ضع معرف الـ Webhook من PayPal
+  const signature = req.headers["paypal-transmission-sig"];
+  const authAlgo = req.headers["paypal-auth-algo"];
+  const certUrl = req.headers["paypal-cert-url"];
+  const transmissionId = req.headers["paypal-transmission-id"];
+  const transmissionTime = req.headers["paypal-transmission-time"];
+  const body = JSON.stringify(req.body);
+
+  return new Promise((resolve, reject) => {
+    paypal.notification.webhookEvent.verify(
+      {
+        transmission_id: transmissionId,
+        timestamp: transmissionTime,
+        webhook_id: webhookId,
+        event_body: body,
+        cert_url: certUrl,
+        auth_algo: authAlgo,
+        transmission_sig: signature,
+      },
+      (err, response) => {
+        if (err || response.verification_status !== "SUCCESS") {
+          return reject(err || new Error("فشل التحقق من Webhook"));
+        }
+        resolve(true);
+      }
+    );
+  });
+};
+
+app.post("/webhook", express.json({ type: "application/json" }), async (req, res) => {
+  try {
+    await verifyWebhookSignature(req); // ✅ التحقق من التوقيع
+    const event = req.body;
+
+    if (event.event_type === "PAYMENT.SALE.COMPLETED") {
+      const orderId = parseInt(event.resource.invoice_number, 10);
+
+      if (isNaN(orderId)) {
+        return res.status(400).json({ error: "معرف الطلب غير صالح" });
+      }
+
+      const order = await prisma.orders.findUnique({ where: { id: orderId } });
+
+      if (!order) return res.status(404).json({ error: "الطلب غير موجود" });
+
+      const paymentAmount = parseFloat(event.resource.amount.total);
+      if (paymentAmount !== order.totalPrice) {
+        return res.status(400).json({ error: "المبلغ المدفوع غير متطابق مع الطلب" });
+      }
+
+      await prisma.orders.update({
+        where: { id: orderId },
+        data: { status: "PAID" },
+      });
+
+      res.status(200).send("✅ Webhook Processed");
+    } else {
+      res.status(200).send("⚠️ Event Not Handled");
+    }
+  } catch (error) {
+    console.error("❌ Webhook Error:", error);
+    res.status(400).json({ error: "فشل التحقق من Webhook" });
+  }
+});
+
 app.post("/order", authenticate, async (req, res) => {
   const { items } = req.body;
-  
-  console.log("🛒 الطلبات المستلمة:", items); // ✅ طباعة البيانات القادمة من الطلب
-
-  if (!items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "يجب تحديد عناصر الطلب" });
-  }
-
   let totalPrice = 0;
   const orderItems = await Promise.all(
     items.map(async (item) => {
-      console.log("🔎 فحص المنتج:", item.productId); // ✅ التأكد من وجود productId
-
-      if (!item.productId) {
-        return res.status(400).json({ error: "معرف المنتج غير موجود" });
-      }
-
       const product = await prisma.products.findUnique({ where: { id: item.productId } });
-
       if (!product) {
-        return res.status(404).json({ error: `المنتج بالمعرف ${item.productId} غير موجود` });
+        return res.status(400).json({ error: `المنتج غير موجود: ${item.productId}` });
       }
-
-      if (product.stock < item.quantity) {
-        return res.status(400).json({ error: `الكمية المطلوبة غير متوفرة للمنتج ${product.name}` });
-      }
-
+      
       totalPrice += product.price * item.quantity;
       return { productId: item.productId, quantity: item.quantity, price: product.price };
     })
   );
-
   const order = await prisma.orders.create({
-    data: {
-      userId: req.userId,
-      totalPrice,
-      status: "PENDING",
-      items: { create: orderItems.filter(Boolean) },
-    },
+    data: { userId: req.userId, totalPrice, status: "PENDING", items: { create: orderItems.filter(Boolean) } }
   });
-
   res.status(201).json({ message: "تم إنشاء الطلب بنجاح", order });
 });
-
-
-// ✅ الدفع عبر PayPal
-app.post("/pay", authenticate, async (req, res) => {
-  const { orderId } = req.body;
-
-  const order = await prisma.orders.findUnique({ where: { id: orderId }, include: { items: true } });
-
-  if (!order) return res.status(404).json({ error: "الطلب غير موجود" });
-  if (order.userId !== req.userId) return res.status(403).json({ error: "ليس لديك صلاحية لهذا الطلب" });
-
-  const payment = {
-    intent: "sale",
-    payer: { payment_method: "paypal" },
-    transactions: [{ amount: { total: order.totalPrice.toFixed(2), currency: "USD" } }],
-    redirect_urls: {
-      return_url: "http://yourdomain.com/success?orderId=" + orderId, // ✅ رابط نجاح الدفع
-      cancel_url: "http://yourdomain.com/cancel" // ✅ رابط إلغاء الدفع
-    }
-  };
-
-  paypal.payment.create(payment, async (err, payment) => {
-    if (err) return res.status(500).json(err);
-    
-    // ✅ استخراج رابط الدفع
-    const approvalUrl = payment.links.find(link => link.rel === "approval_url").href;
-
-    res.json({ approvalUrl });
-  });
-});
-
 app.get("/allproducts", async (req, res) => {
   try {
     const products = await prisma.products.findMany();
@@ -167,7 +206,7 @@ app.get("/allproducts", async (req, res) => {
 app.get("/success", async (req, res) => {
   const { paymentId, PayerID, orderId } = req.query;
 
-  if (!paymentId || !PayerID) {
+  if (!paymentId || !PayerID || !orderId) {
     return res.status(400).json({ error: "بيانات غير صحيحة" });
   }
 
@@ -181,15 +220,18 @@ app.get("/success", async (req, res) => {
 
     console.log("✅ دفع ناجح!", payment);
 
-    // ✅ تحديث الطلب إلى "مدفوع"
+    const order = await prisma.orders.findUnique({ where: { id: parseInt(orderId) } });
+    if (!order) return res.status(404).json({ error: "الطلب غير موجود" });
+
     await prisma.orders.update({
       where: { id: parseInt(orderId) },
       data: { status: "PAID" },
     });
 
-    res.redirect("http://yourdomain.com/order-confirmation");
+    res.json({ message: "✅ تم تأكيد الدفع بنجاح!" });
   });
 });
+
 
 
 
@@ -221,9 +263,9 @@ app.get("/products", async (req, res) => {
 
 
 // ✅ تشغيل السيرفر
-// app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+ app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
-module.exports = app;
+
 
 //npx prisma studio
 //npx prisma migrate deploy 
